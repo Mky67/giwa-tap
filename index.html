@@ -188,6 +188,60 @@
     padding: 1px 5px;
     border-radius: 4px;
   }
+  .venue-banner {
+    background: #0f2a22;
+    border: 1px solid var(--accent-dark);
+    color: var(--text);
+    font-size: 15px;
+    padding: 14px;
+    border-radius: 10px;
+    margin-bottom: 16px;
+    text-align: center;
+  }
+  .venue-banner strong { color: var(--accent); }
+  .preset-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .preset-btn {
+    flex: 1 1 auto;
+    background: #0d141b;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    padding: 10px 6px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 10px;
+    min-width: 64px;
+  }
+  .preset-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .preset-btn.active { background: var(--accent); border-color: var(--accent); color: #04140f; }
+  .fiat-hint {
+    font-size: 13px;
+    color: var(--muted);
+    margin: -8px 0 14px;
+    min-height: 16px;
+  }
+  .fiat-hint.ready { color: var(--accent); }
+  #posterWrap { display: none; }
+  #posterQr img, #posterQr canvas { background: #fff; border-radius: 12px; padding: 16px; }
+  @media print {
+    body > .app > *:not(#posterWrap) { display: none !important; }
+    #posterWrap.hidden, #posterWrap {
+      display: block !important;
+      max-width: 100%;
+      text-align: center;
+      padding: 40px 20px;
+      color: #04140f;
+    }
+    #posterWrap .posterLogo { font-size: 32px; font-weight: 700; margin-bottom: 6px; }
+    #posterWrap .posterLogo span { color: #1f9a78; }
+    #posterWrap .posterVenue { font-size: 26px; font-weight: 700; margin-bottom: 18px; }
+    #posterWrap .posterTag { font-size: 16px; margin-bottom: 20px; }
+    #posterWrap .posterFoot { font-size: 12px; color: #444; margin-top: 20px; word-break: break-all; }
+  }
 </style>
 </head>
 <body>
@@ -217,6 +271,10 @@
         <label>Alıcı Adresi</label>
         <input id="recvAddress" type="text" placeholder="0x... (cüzdanını bağla ya da elle gir)" />
       </div>
+      <div class="field">
+        <label>İşletme / Kafe Adı (opsiyonel)</label>
+        <input id="venueNameInput" type="text" maxlength="40" placeholder="örn. Kedi Kahve" />
+      </div>
       <div class="row" style="gap:8px;">
         <button class="btn-secondary" id="btnConnectForReceive">Cüzdanımı Kullan</button>
       </div>
@@ -232,6 +290,7 @@
         </div>
       </div>
       <p class="status" id="receiveStatus">Adres girildiğinde QR ve link otomatik oluşur. Bu linki paylaş, kim açarsa doğrudan sana ödeme ekranına düşer.</p>
+      <button class="btn-secondary" id="printPoster" style="margin-top:10px;" disabled>🖨️ Masa/Vitrin Posteri Yazdır</button>
     </div>
 
     <div class="card">
@@ -245,6 +304,10 @@
 
   <!-- SEND -->
   <div id="panelSend" class="hidden">
+    <div id="venueBanner" class="venue-banner hidden">
+      ☕ <strong id="venueNameDisplay"></strong> için bahşiş bırakıyorsun
+    </div>
+
     <div class="card">
       <div class="field">
         <label>Cüzdan</label>
@@ -259,9 +322,14 @@
         <input id="sendTo" type="text" placeholder="0x..." />
       </div>
       <div class="field">
+        <label>Hızlı Tutar (₺)</label>
+        <div class="preset-row" id="presetRow"></div>
+      </div>
+      <div class="field">
         <label>Miktar (ETH)</label>
         <input id="sendAmount" type="number" step="0.0001" min="0" placeholder="0.001" />
       </div>
+      <p class="fiat-hint" id="fiatHint"></p>
       <div class="field">
         <label>Mesaj (opsiyonel, max 280 karakter)</label>
         <textarea id="sendMessage" maxlength="280" placeholder="Teşekkürler! ☕"></textarea>
@@ -282,6 +350,14 @@
     <a href="https://docs.giwa.io" target="_blank" rel="noopener">Docs</a> ·
     GASOK başvurusu için MVP demo.
   </footer>
+
+  <div id="posterWrap" class="hidden">
+    <div class="posterLogo">GIWA <span>Tap</span></div>
+    <div class="posterVenue" id="posterVenueName">Kripto ile Bahşiş</div>
+    <div class="posterTag">Telefonunla QR'ı okut, saniyeler içinde bahşiş bırak ☕</div>
+    <div id="posterQr"></div>
+    <div class="posterFoot" id="posterLinkText"></div>
+  </div>
 </div>
 
 <script>
@@ -315,6 +391,72 @@ const isContractConfigured = () =>
 let provider, signer, contract, userAddress;
 
 document.getElementById("setupBanner").classList.toggle("hidden", isContractConfigured());
+
+// ---------- Live ETH → TRY price (for cafe/restaurant tip presets) ----------
+const PRESET_TRY_AMOUNTS = [20, 50, 100, 200];
+let ethTryPrice = null;
+
+async function fetchEthPrice() {
+  try {
+    const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=try");
+    const data = await res.json();
+    ethTryPrice = (data && data.ethereum && data.ethereum.try) || null;
+  } catch (e) {
+    ethTryPrice = null;
+  }
+  renderPresetButtons();
+  updateFiatHint();
+}
+fetchEthPrice();
+setInterval(fetchEthPrice, 60000);
+
+function renderPresetButtons() {
+  const row = document.getElementById("presetRow");
+  if (!row) return;
+  row.innerHTML = "";
+  if (!ethTryPrice) {
+    row.innerHTML = '<span class="fiat-hint">Kur yükleniyor, elle miktar girebilirsin.</span>';
+    return;
+  }
+  PRESET_TRY_AMOUNTS.forEach((tryAmt) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "preset-btn";
+    btn.textContent = "₺" + tryAmt;
+    btn.onclick = () => {
+      const eth = tryAmt / ethTryPrice;
+      document.getElementById("sendAmount").value = eth.toFixed(6);
+      [...row.children].forEach((c) => c.classList.remove("active"));
+      btn.classList.add("active");
+      updateFiatHint();
+    };
+    row.appendChild(btn);
+  });
+}
+
+function updateFiatHint() {
+  const hint = document.getElementById("fiatHint");
+  if (!hint) return;
+  const amount = Number(document.getElementById("sendAmount").value);
+  if (!ethTryPrice) {
+    hint.textContent = "";
+    hint.classList.remove("ready");
+    return;
+  }
+  if (!amount || amount <= 0) {
+    hint.textContent = `Güncel kur: 1 ETH ≈ ₺${ethTryPrice.toLocaleString("tr-TR")}`;
+    hint.classList.remove("ready");
+    return;
+  }
+  hint.textContent = `≈ ₺${(amount * ethTryPrice).toLocaleString("tr-TR", { maximumFractionDigits: 2 })}`;
+  hint.classList.add("ready");
+}
+
+document.getElementById("sendAmount").addEventListener("input", () => {
+  const row = document.getElementById("presetRow");
+  if (row) [...row.children].forEach((c) => c.classList.remove("active"));
+  updateFiatHint();
+});
 
 // ---------- Tabs ----------
 const tabReceive = document.getElementById("tabReceive");
@@ -405,35 +547,65 @@ document.getElementById("btnConnectForReceive").onclick = async () => {
 
 // ---------- Receive tab: QR + link ----------
 const recvAddressInput = document.getElementById("recvAddress");
+const venueNameInput = document.getElementById("venueNameInput");
 recvAddressInput.addEventListener("input", renderReceive);
+venueNameInput.addEventListener("input", renderReceive);
 
-// Pre-fill from ?to= query param if someone opened a shared link.
+// Pre-fill from ?to=&name= query params if someone opened a shared link.
 const params = new URLSearchParams(window.location.search);
 if (params.get("to")) {
   recvAddressInput.value = params.get("to");
   switchTab("send");
   document.getElementById("sendTo").value = params.get("to");
 }
+if (params.get("name")) {
+  const venueName = decodeURIComponent(params.get("name"));
+  venueNameInput.value = venueName;
+  const banner = document.getElementById("venueBanner");
+  banner.classList.remove("hidden");
+  document.getElementById("venueNameDisplay").textContent = venueName;
+}
 
 let qrInstance = null;
 function renderReceive() {
   const addr = recvAddressInput.value.trim();
+  const venueName = venueNameInput.value.trim();
   const qrDiv = document.getElementById("qrcode");
   qrDiv.innerHTML = "";
   const link = document.getElementById("shareLink");
+  const printBtn = document.getElementById("printPoster");
 
   if (!ethers.isAddress(addr)) {
     link.value = "";
+    printBtn.disabled = true;
     setStatus("receiveStatus", addr ? "Geçersiz adres." : "Adres girildiğinde QR ve link otomatik oluşur.", !!addr);
     return;
   }
 
-  const url = `${window.location.origin}${window.location.pathname}?to=${addr}`;
+  let url = `${window.location.origin}${window.location.pathname}?to=${addr}`;
+  if (venueName) url += `&name=${encodeURIComponent(venueName)}`;
   link.value = url;
   new QRCode(qrDiv, { text: url, width: 180, height: 180, colorDark: "#0b0f14", colorLight: "#ffffff" });
+  printBtn.disabled = false;
   setStatus("receiveStatus", "Hazır! QR'ı okutan kişi direkt sana ödeme yapabilir.", false);
   loadReceivedFor(addr);
 }
+
+document.getElementById("printPoster").onclick = () => {
+  const addr = recvAddressInput.value.trim();
+  if (!ethers.isAddress(addr)) return;
+  const venueName = venueNameInput.value.trim();
+  let url = `${window.location.origin}${window.location.pathname}?to=${addr}`;
+  if (venueName) url += `&name=${encodeURIComponent(venueName)}`;
+
+  document.getElementById("posterVenueName").textContent = venueName ? venueName : "Kripto ile Bahşiş";
+  document.getElementById("posterLinkText").textContent = url;
+  const posterQr = document.getElementById("posterQr");
+  posterQr.innerHTML = "";
+  new QRCode(posterQr, { text: url, width: 260, height: 260, colorDark: "#0b0f14", colorLight: "#ffffff" });
+
+  window.print();
+};
 
 document.getElementById("copyLink").onclick = () => {
   const link = document.getElementById("shareLink");
