@@ -29,9 +29,64 @@
     justify-content: center;
     padding: 32px 16px 64px;
   }
+  .layout {
+    display: flex;
+    align-items: flex-start;
+    gap: 28px;
+    width: 100%;
+    max-width: 800px;
+  }
   .app {
     width: 100%;
     max-width: 480px;
+  }
+  .updatesSidebar {
+    width: 240px;
+    flex: 0 0 240px;
+    position: sticky;
+    top: 32px;
+  }
+  .updatesSidebar h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 4px 0 16px;
+  }
+  .updatesTimeline { position: relative; padding-left: 18px; }
+  .updatesTimeline::before {
+    content: "";
+    position: absolute;
+    left: 4px; top: 4px; bottom: 4px;
+    width: 2px;
+    background: var(--panel-border);
+  }
+  .updateEntry { position: relative; margin-bottom: 18px; }
+  .updateEntry::before {
+    content: "";
+    position: absolute;
+    left: -18px; top: 4px;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid #05080b;
+  }
+  .updateEntry .updateDate {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 3px;
+  }
+  .updateEntry .updateText {
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.4;
+  }
+  @media (max-width: 860px) {
+    .layout { flex-direction: column; max-width: 480px; }
+    .updatesSidebar { width: 100%; flex-basis: auto; position: static; order: 2; }
+    .app { order: 1; }
   }
   header {
     text-align: center;
@@ -261,7 +316,12 @@
 </style>
 </head>
 <body>
-<div class="app">
+<div class="layout">
+  <aside class="updatesSidebar">
+    <h2>Güncellemeler</h2>
+    <div class="updatesTimeline" id="updatesTimeline"></div>
+  </aside>
+  <div class="app">
   <header>
     <div class="logo">GIWA <span>Tap</span></div>
     <p>Anlık, düşük ücretli on-chain bahşiş &amp; ödeme — QR okut, gönder, bitti.</p>
@@ -371,7 +431,6 @@
     GIWA Sepolia Testnet (Chain ID 91342) üzerinde çalışır — Ethereum L2, düşük ücret, hızlı finality.<br/>
     <a href="https://sepolia-explorer.giwa.io" target="_blank" rel="noopener">Explorer</a> ·
     <a href="https://docs.giwa.io" target="_blank" rel="noopener">Docs</a> ·
-    <a href="updates.html">Güncellemeler</a> ·
     GASOK başvurusu için MVP demo.
   </footer>
 
@@ -381,6 +440,7 @@
     <div class="posterTag">Telefonunla QR'ı okut, saniyeler içinde bahşiş bırak ☕</div>
     <div id="posterQr"></div>
     <div class="posterFoot" id="posterLinkText"></div>
+  </div>
   </div>
 </div>
 
@@ -415,6 +475,46 @@ const isContractConfigured = () =>
 let provider, signer, contract, userAddress;
 
 document.getElementById("setupBanner").classList.toggle("hidden", isContractConfigured());
+
+// ---------- Sol taraf güncelleme zaman çizelgesi ----------
+/* Yeni bir güncelleme eklemek için: aşağıdaki listeye EN ÜSTE yeni bir obje
+   ekle (en yeni her zaman en üstte olmalı), dosyayı kaydet ve GitHub'a
+   yükle. Başka hiçbir şeye dokunmana gerek yok. */
+const UPDATES = [
+  {
+    date: "2026-08-25",
+    text: "Kafe/Restoran Modu ve Destekçi Sayacı: işletme adı, hazır ₺ tutar butonları, yazdırılabilir poster ve \"kaç kişi bahşiş bıraktı\" sayacı eklendi."
+  },
+  {
+    date: "2026-07-31",
+    text: "GiwaTap MVP Yayında: kontrat GIWA Sepolia'ya deploy edildi, Blockscout'ta doğrulandı, canlı uygulama yayına alındı ve ilk on-chain test işlemi tamamlandı."
+  }
+];
+
+function formatUpdateDate(iso) {
+  const d = new Date(iso + "T00:00:00");
+  return d.toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" });
+}
+
+function renderUpdatesTimeline() {
+  const container = document.getElementById("updatesTimeline");
+  if (!container) return;
+  if (!UPDATES.length) {
+    container.innerHTML = '<div class="empty">Henüz güncelleme eklenmedi.</div>';
+    return;
+  }
+  container.innerHTML = "";
+  for (const u of UPDATES) {
+    const entry = document.createElement("div");
+    entry.className = "updateEntry";
+    entry.innerHTML = `
+      <div class="updateDate">${formatUpdateDate(u.date)}</div>
+      <div class="updateText">${u.text}</div>
+    `;
+    container.appendChild(entry);
+  }
+}
+renderUpdatesTimeline();
 
 // ---------- Live ETH → TRY price (for cafe/restaurant tip presets) ----------
 const PRESET_TRY_AMOUNTS = [20, 50, 100, 200];
